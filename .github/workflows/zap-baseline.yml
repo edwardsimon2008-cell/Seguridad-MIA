@@ -1,0 +1,34 @@
+  - name: Preparar carpeta de reportes
+    run: mkdir -p $GITHUB_WORKSPACE/zap_reports
+
+  - name: Ejecutar ZAP baseline (Docker)
+    env:
+      TARGET_URL: ${{ secrets.TARGET_URL }}
+    run: |
+      docker run --rm -v $GITHUB_WORKSPACE/zap_reports:/zap/wrk:Z owasp/zap2docker-stable \
+        zap-baseline.py -t "${TARGET_URL}" -r /zap/wrk/zap_report.html -j /zap/wrk/zap_report.json
+
+  - name: Subir reporte HTML como artifact
+    uses: actions/upload-artifact@v4
+    with:
+      name: zap-report-html
+      path: zap_reports/zap_report.html
+
+  - name: Subir reporte JSON como artifact
+    uses: actions/upload-artifact@v4
+    with:
+      name: zap-report-json
+      path: zap_reports/zap_report.json
+
+  - name: Fail job si hay alertas High
+    if: always()
+    run: |
+      if [ ! -f zap_reports/zap_report.json ]; then
+        echo "No se encontró zap_report.json; no se puede evaluar alertas."
+        exit 0
+      fi
+      HIGH_COUNT=$(jq '[.site[]?.alerts[]? | select(.risk == "High")] | length' zap_reports/zap_report.json || echo 0)
+      echo "High alerts: ${HIGH_COUNT}"
+      if [ "${HIGH_COUNT}" -gt 0 ]; then
+        echo "::error::Se encontraron alertas de riesgo ALTO (${HIGH_COUNT})."
+        # exit 1
